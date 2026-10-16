@@ -199,8 +199,15 @@
           document.getElementById('val-power').innerText = parseFloat(latestSolar.field4 || 0).toFixed(1);
         }
 
+        // --- EXTRACT TIMESTAMP & VERSION NUMBER FROM FIELD 8 ---
+        const payloadTimestamp = latestWeather.field8 || ''; 
+        const versionMatch = payloadTimestamp.match(/\(v[\d\.]+\)/);
+        const versionStr = versionMatch ? `| ${versionMatch[0]}` : '';
+
         const timeStr = new Date(latestWeather.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        document.getElementById('status-tag').innerText = `Live | Updated ${timeStr}`;
+        
+        // Update header badge with time and active firmware version
+        document.getElementById('status-tag').innerText = `Live | Updated ${timeStr} ${versionStr}`;
 
         // Parse Weather Feeds into Arrays
         const labels = weatherFeeds.map(f => new Date(f.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
