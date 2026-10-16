@@ -15,6 +15,7 @@
       --accent-purple: #a855f7;
       --accent-amber: #f59e0b;
       --accent-green: #10b981;
+      --accent-red: #ef4444;
       --text-main: #f8fafc;
       --text-sub: #94a3b8;
     }
@@ -54,6 +55,7 @@
       padding: 6px 14px;
       border-radius: 20px;
       backdrop-filter: blur(8px);
+      transition: all 0.3s ease;
     }
 
     .glass-card {
@@ -121,6 +123,11 @@
   <!-- Key Metric Summary Cards -->
   <div class="metrics-grid">
     <div class="glass-card metric-card">
+      <h3>Starlink Status</h3>
+      <div class="value" id="val-starlink-status">--</div>
+      <div class="unit" id="val-starlink-age">Checking link...</div>
+    </div>
+    <div class="glass-card metric-card">
       <h3>Outdoor Temp</h3>
       <div class="value"><span id="val-outdoor">--</span> <span class="unit">°C</span></div>
     </div>
@@ -151,11 +158,12 @@
   </div>
 
   <script>
-    // Weather Channel Details
+    // --- PRIVATE CHANNEL CREDENTIALS ---
+    // Primary Weather Channel Details
     const WEATHER_CHANNEL_ID = '2120294';
     const WEATHER_READ_KEY = 'PQID62S8NLN4FQRO';
 
-    // Solar / Power Channel Details (Update these once Channel 2 is configured)
+    // Secondary Solar / Power Channel Details (Update these once Channel 2 is configured)
     const SOLAR_CHANNEL_ID = 'YOUR_SOLAR_CHANNEL_ID'; 
     const SOLAR_READ_KEY = 'YOUR_SOLAR_READ_API_KEY';
 
@@ -163,18 +171,21 @@
 
     async function fetchTelemetry() {
       try {
-        // Query Weather Channel Feed
+        // Query Primary Weather Channel Feed
         const weatherUrl = `https://api.thingspeak.com/channels/${WEATHER_CHANNEL_ID}/feeds.json?api_key=${WEATHER_READ_KEY}&results=30`;
         const weatherRes = await fetch(weatherUrl);
         const weatherData = await weatherRes.json();
         const weatherFeeds = weatherData.feeds;
         const latestWeather = weatherFeeds[weatherFeeds.length - 1];
 
+        // Evaluate Starlink Link Status via Feed Timestamp Age
+        checkStarlinkHealth(latestWeather.created_at);
+
         // Update Weather Stat Cards
         document.getElementById('val-outdoor').innerText = parseFloat(latestWeather.field7 || 0).toFixed(1);
         document.getElementById('val-humidity').innerText = parseFloat(latestWeather.field2 || 0).toFixed(1);
 
-        // Fetch Solar Channel Feed (If initialized)
+        // Query Solar Channel Feed (If initialized)
         let solarFeeds = [];
         let latestSolar = {};
         if (SOLAR_CHANNEL_ID !== 'YOUR_SOLAR_CHANNEL_ID') {
@@ -191,14 +202,18 @@
         const timeStr = new Date(latestWeather.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         document.getElementById('status-tag').innerText = `Live | Updated ${timeStr}`;
 
-        // Parse feeds into arrays for charting
+        // Parse Weather Feeds into Arrays
         const labels = weatherFeeds.map(f => new Date(f.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
         const outdoorTemps = weatherFeeds.map(f => parseFloat(f.field7));
         const indoorTemps = weatherFeeds.map(f => parseFloat(f.field1));
 
-        // Solar Arrays
-        const batteryVolts = solarFeeds.map(f => parseFloat(f.field1 || 0));
-        const systemWatts = solarFeeds.map(f => parseFloat(f.field4 || 0));
+        // Parse Solar Arrays with Fallback Protection
+        const batteryVolts = labels.map((_, index) => {
+          return (solarFeeds[index] && solarFeeds[index].field1) ? parseFloat(solarFeeds[index].field1) : null;
+        });
+        const systemWatts = labels.map((_, index) => {
+          return (solarFeeds[index] && solarFeeds[index].field4) ? parseFloat(solarFeeds[index].field4) : null;
+        });
 
         renderCharts(labels, outdoorTemps, indoorTemps, batteryVolts, systemWatts);
       } catch (err) {
@@ -206,6 +221,36 @@
         document.getElementById('status-tag').innerText = 'Offline';
         document.getElementById('status-tag').style.borderColor = 'rgba(239, 68, 68, 0.4)';
         document.getElementById('status-tag').style.color = '#ef4444';
+
+        document.getElementById('val-starlink-status').innerText = 'UNKNOWN';
+        document.getElementById('val-starlink-status').style.color = '#ef4444';
+        document.getElementById('val-starlink-age').innerText = 'Fetch Failed';
+      }
+    }
+
+    function checkStarlinkHealth(latestTimestamp) {
+      const lastUpdate = new Date(latestTimestamp);
+      const now = new Date();
+      const diffMinutes = Math.floor((now - lastUpdate) / 60000);
+
+      const statusElem = document.getElementById('val-starlink-status');
+      const ageElem = document.getElementById('val-starlink-age');
+
+      if (diffMinutes <= 0) {
+        ageElem.innerText = 'Just now';
+      } else {
+        ageElem.innerText = `Last seen ${diffMinutes}m ago`;
+      }
+
+      if (diffMinutes <= 3) {
+        statusElem.innerText = 'ONLINE';
+        statusElem.style.color = '#10b981'; // Green
+      } else if (diffMinutes <= 10) {
+        statusElem.innerText = 'DEGRADED';
+        statusElem.style.color = '#f59e0b'; // Amber
+      } else {
+        statusElem.innerText = 'DOWN';
+        statusElem.style.color = '#ef4444'; // Red
       }
     }
 
@@ -251,8 +296,8 @@
           data: {
             labels: labels,
             datasets: [
-              { label: 'Battery Voltage (V)', data: volts, borderColor: '#10b981', borderWidth: 2, tension: 0.4, yAxisID: 'y' },
-              { label: 'System Power (W)', data: watts, borderColor: '#f59e0b', borderWidth: 2, tension: 0.4, yAxisID: 'y1' }
+              { label: 'Battery Voltage (V)', data: volts, borderColor: '#10b981', borderWidth: 2, tension: 0.4, yAxisID: 'y', spanGaps: true },
+              { label: 'System Power (W)', data: watts, borderColor: '#f59e0b', borderWidth: 2, tension: 0.4, yAxisID: 'y1', spanGaps: true }
             ]
           },
           options: {
@@ -277,6 +322,7 @@
       }
     }
 
+    // Initial load and periodic refresh (every 60 seconds)
     fetchTelemetry();
     setInterval(fetchTelemetry, 60000);
   </script>
