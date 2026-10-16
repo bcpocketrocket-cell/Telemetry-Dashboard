@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Project Blackpool - System & Weather Dashboard</title>
+  <title>Project Blackpool - System & Weather Graphical Dashboard</title>
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -48,6 +48,12 @@
       color: #e2e8f0;
     }
 
+    .header-badges {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
     .badge {
       font-size: 0.8rem;
       background: rgba(16, 185, 129, 0.15);
@@ -56,6 +62,7 @@
       padding: 6px 14px;
       border-radius: 20px;
       backdrop-filter: blur(8px);
+      transition: all 0.3s ease;
     }
 
     .glass-card {
@@ -69,7 +76,13 @@
       margin-bottom: 20px;
     }
 
-    /* Renogy App Style Graphical Flow Layout */
+    .section-title {
+      font-size: 1rem;
+      color: #e2e8f0;
+      margin: 0 0 16px 0;
+    }
+
+    /* Graphical Energy Flow Layout */
     .flow-container {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -111,7 +124,7 @@
       margin-top: 2px;
     }
 
-    /* Battery Progress Bar */
+    /* LiFePO4 Battery Progress Bar */
     .battery-bar-outer {
       width: 100%;
       height: 12px;
@@ -126,13 +139,6 @@
       width: 0%;
       background: var(--accent-green);
       transition: width 0.5s ease;
-    }
-
-    /* Section Grid Layouts */
-    .section-title {
-      font-size: 1rem;
-      color: #e2e8f0;
-      margin: 0 0 16px 0;
     }
 
     .weather-grid {
@@ -170,7 +176,10 @@
 
   <header>
     <h1>PROJECT BLACKPOOL TELEMETRY</h1>
-    <div id="status-tag" class="badge">Live | Syncing...</div>
+    <div class="header-badges">
+      <div id="starlink-tag" class="badge">Starlink: Checking...</div>
+      <div id="status-tag" class="badge">Live | Syncing...</div>
+    </div>
   </header>
 
   <!-- RENOGY-STYLE SOLAR ENERGY FLOW GRAPHIC -->
@@ -186,12 +195,12 @@
         <div class="val-sub"><span id="flow-pv-volts">--</span> V</div>
       </div>
 
-      <!-- MPPT Controller Node -->
+      <!-- MPPT Controller Node (Dedicated Rover Status) -->
       <div class="flow-node">
         <div class="icon">⚡</div>
-        <h4>Rover MPPT</h4>
-        <div class="val-primary"><span id="flow-mppt-state">Active</span></div>
-        <div class="val-sub"><span id="val-starlink-status">ONLINE</span></div>
+        <h4>Rover MPPT 30A</h4>
+        <div class="val-primary" id="flow-mppt-stage" style="color: var(--accent-cyan);">--</div>
+        <div class="val-sub"><span id="flow-mppt-status">Standby</span></div>
       </div>
 
       <!-- Battery Bank Node -->
@@ -205,18 +214,18 @@
         </div>
       </div>
 
-      <!-- Inverter / DC Load Node -->
+      <!-- Cabin Power Draw Node -->
       <div class="flow-node">
         <div class="icon">💡</div>
         <h4>Cabin Power Draw</h4>
         <div class="val-primary"><span id="flow-load-watts">--</span> W</div>
-        <div class="val-sub"><span id="val-starlink-age">Just now</span></div>
+        <div class="val-sub"><span id="flow-load-amps">--</span> A Draw</div>
       </div>
 
     </div>
   </div>
 
-  <!-- WEATHER STATION METRICS GRID -->
+  <!-- WEATHER METRICS GRID -->
   <div class="weather-grid">
     <div class="glass-card metric-small">
       <h4>Outdoor Temp</h4>
@@ -257,7 +266,7 @@
   </div>
 
   <script>
-    // --- PRIVATE CHANNEL CREDENTIALS ---
+    // --- ThingSpeak Private Credentials ---
     const WEATHER_CHANNEL_ID = '2120294';
     const WEATHER_READ_KEY = 'PQID62S8NLN4FQRO';
 
@@ -275,9 +284,10 @@
         const weatherFeeds = weatherData.feeds;
         const latestWeather = weatherFeeds[weatherFeeds.length - 1];
 
+        // Evaluate Starlink Health (Updates top header badge)
         checkStarlinkHealth(latestWeather.created_at);
 
-        // Update Weather Metrics
+        // Update Weather Stat Cards
         document.getElementById('val-indoor').innerText = parseFloat(latestWeather.field1 || 0).toFixed(1);
         document.getElementById('val-humidity').innerText = parseFloat(latestWeather.field2 || 0).toFixed(1);
         document.getElementById('val-pressure').innerText = parseFloat(latestWeather.field3 || 0).toFixed(2);
@@ -295,16 +305,34 @@
           solarFeeds = solarData.feeds;
           latestSolar = solarFeeds[solarFeeds.length - 1] || {};
 
-          // Update Graphical Power Diagram Nodes
           const battVolts = parseFloat(latestSolar.field1 || 0);
           const battAmps = parseFloat(latestSolar.field2 || 0);
+          const pvVolts = parseFloat(latestSolar.field3 || 0);
           const systemWatts = parseFloat(latestSolar.field4 || 0);
 
           document.getElementById('flow-batt-volts').innerText = battVolts.toFixed(2);
           document.getElementById('flow-batt-amps').innerText = battAmps.toFixed(1);
+          document.getElementById('flow-pv-volts').innerText = pvVolts.toFixed(1);
+          document.getElementById('flow-pv-watts').innerText = (pvVolts * battAmps).toFixed(0);
           document.getElementById('flow-load-watts').innerText = systemWatts.toFixed(1);
+          document.getElementById('flow-load-amps').innerText = battVolts > 0 ? (systemWatts / battVolts).toFixed(1) : '0.0';
 
-          // Approximate LiFePO4 State of Charge Percentage (SOC)
+          // Rover Charge Stage Logic
+          if (battVolts >= 14.2) {
+            document.getElementById('flow-mppt-stage').innerText = 'Boost';
+            document.getElementById('flow-mppt-status').innerText = 'CV Charge';
+          } else if (battVolts >= 13.5) {
+            document.getElementById('flow-mppt-stage').innerText = 'Float';
+            document.getElementById('flow-mppt-status').innerText = 'Maintaining';
+          } else if (pvVolts > 15) {
+            document.getElementById('flow-mppt-stage').innerText = 'Bulk';
+            document.getElementById('flow-mppt-status').innerText = 'MPPT Active';
+          } else {
+            document.getElementById('flow-mppt-stage').innerText = 'Idle';
+            document.getElementById('flow-mppt-status').innerText = 'Night Mode';
+          }
+
+          // LiFePO4 State of Charge (SOC) Calculation
           let soc = 0;
           if (battVolts >= 13.6) soc = 100;
           else if (battVolts <= 12.0) soc = 0;
@@ -316,9 +344,11 @@
           if (soc <= 20) document.getElementById('battery-bar').style.background = '#ef4444';
           else if (soc <= 50) document.getElementById('battery-bar').style.background = '#f59e0b';
           else document.getElementById('battery-bar').style.background = '#10b981';
+        } else {
+          document.getElementById('flow-mppt-stage').innerText = 'Standby';
         }
 
-        // Extract Timestamp & Version Tag
+        // Header Version and Update Timestamp Parsing
         const payloadTimestamp = latestWeather.field8 || ''; 
         const versionMatch = payloadTimestamp.match(/\(v[\d\.]+\)/);
         const versionStr = versionMatch ? `| ${versionMatch[0]}` : '';
@@ -326,7 +356,7 @@
         const timeStr = new Date(latestWeather.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         document.getElementById('status-tag').innerText = `Live | Updated ${timeStr} ${versionStr}`;
 
-        // Parse Chart Datasets
+        // Parse Datasets for Charting
         const labels = weatherFeeds.map(f => new Date(f.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
         const outdoorTemps = weatherFeeds.map(f => parseFloat(f.field7));
         const indoorTemps = weatherFeeds.map(f => parseFloat(f.field1));
@@ -352,23 +382,20 @@
       const now = new Date();
       const diffMinutes = Math.floor((now - lastUpdate) / 60000);
 
-      const statusElem = document.getElementById('val-starlink-status');
-      const ageElem = document.getElementById('val-starlink-age');
-
-      if (diffMinutes <= 0) {
-        ageElem.innerText = 'Just now';
-      } else {
-        ageElem.innerText = `Last seen ${diffMinutes}m ago`;
-      }
+      const statusElem = document.getElementById('starlink-tag');
+      if (!statusElem) return;
 
       if (diffMinutes <= 3) {
-        statusElem.innerText = 'ONLINE';
+        statusElem.innerText = `Starlink: ONLINE (${diffMinutes <= 0 ? 'Just now' : diffMinutes + 'm ago'})`;
+        statusElem.style.borderColor = 'rgba(16, 185, 129, 0.3)';
         statusElem.style.color = '#10b981';
       } else if (diffMinutes <= 10) {
-        statusElem.innerText = 'DEGRADED';
+        statusElem.innerText = `Starlink: DEGRADED (${diffMinutes}m ago)`;
+        statusElem.style.borderColor = 'rgba(245, 158, 11, 0.3)';
         statusElem.style.color = '#f59e0b';
       } else {
-        statusElem.innerText = 'DOWN';
+        statusElem.innerText = `Starlink: DOWN (${diffMinutes}m ago)`;
+        statusElem.style.borderColor = 'rgba(239, 68, 68, 0.4)';
         statusElem.style.color = '#ef4444';
       }
     }
